@@ -32,13 +32,14 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.bind((socket.gethostname(), 9000))
 s.listen(5)
 
-cam = cv2.VideoCapture(0)
+#cam = cv2.VideoCapture(0)
 
-cam.set(3, 640);
-cam.set(4, 480);
-ret, frame = cam.read()
-print('done read',ret,frame.shape)
+#cam.set(3, 640);
+#cam.set(4, 480);
+#ret, frame = cam.read()
+#print('done read',ret,frame.shape)
 img_counter = 0
+cam = None
 
 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 100]
 
@@ -58,32 +59,51 @@ def nouse():
     print("ooga")
     img_counter += 1
 
+connCount = 0
 class MyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        # Response headers (multipart)
-        for k, v in request_headers().items():
-            self.send_header(k, v) 
-        # Multipart content
-        while True:
-            ret, oframe = cam.read()
-            result, frame = cv2.imencode('.jpg', oframe, encode_param)
-            data = frame.tobytes() #pickle.dumps(frame, 0)
-            size = len(data)
-
-            #print('done read',ret,oframe.shape,size, result)
-            # Part boundary string
-            self.end_headers()
-            self.wfile.write(bytes(boundary, 'utf-8'))
-            self.end_headers()
-            # Part headers
-            for k, v in image_headers(size).items():
+        global connCount, cam
+        connCount = connCount+1
+        print("Connection count " + str(connCount))
+        if cam is None:
+            cam = cv2.VideoCapture(0)
+            cam.set(3, 640);
+            cam.set(4, 480);       
+        print("cam allocated")
+        
+        try:
+            self.send_response(200)
+            # Response headers (multipart)
+            for k, v in request_headers().items():
                 self.send_header(k, v) 
-            self.end_headers()
-            # Part binary
-            #for chunk in pymjpeg.image(filename):
-            self.wfile.write(data)
-            time.sleep(0.5)
+            # Multipart content
+            while True:
+                ret, oframe = cam.read()
+                result, frame = cv2.imencode('.jpg', oframe, encode_param)
+                data = frame.tobytes() #pickle.dumps(frame, 0)
+                size = len(data)
+
+                #print('done read',ret,oframe.shape,size, result)
+                # Part boundary string
+                self.end_headers()
+                self.wfile.write(bytes(boundary, 'utf-8'))
+                self.end_headers()
+                # Part headers
+                for k, v in image_headers(size).items():
+                    self.send_header(k, v) 
+                self.end_headers()
+                # Part binary
+                #for chunk in pymjpeg.image(filename):
+                self.wfile.write(data)
+                time.sleep(0.5)
+        except (ConnectionResetError, ConnectionAbortedError) as e:
+            print("client disconnected")
+        connCount = connCount - 1
+        if connCount <= 0:
+            print("stopping cam")
+            cam.release()
+            cam = None
+
     def log_message(self, format, *args):
         return
 
